@@ -17,7 +17,148 @@ if not vim.loop.fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
- ---------------------------------------------- [ Install Plugins ] -----------------------------------------------
+------------------------------------------[ DEBUGGER ]------------------------------------------
+
+local setup_debugging_keymaps = function()
+    local dap = require 'dap'
+    local dapui = require 'dapui'
+
+    -- vim.keymap.set('n', '<F5>', dap.continue, { desc = 'Debug: Start/Continue' })
+
+    vim.keymap.set('n', '<F1>', dap.step_into, { desc = 'Debug: Step Into' })
+    vim.keymap.set('n', '<F2>', dap.step_over, { desc = 'Debug: Step Over' })
+    vim.keymap.set('n', '<F3>', dap.step_out, { desc = 'Debug: Step Out' })
+    vim.keymap.set('n', '<leader>b', dap.toggle_breakpoint, { desc = 'Debug: Toggle Breakpoint' })
+    vim.keymap.set('n', '<leader>B', function()
+    dap.set_breakpoint(vim.fn.input 'Breakpoint condition: ')
+    end, { desc = 'Debug: Set Breakpoint' })
+
+    -- Toggle to see last session result. Without this, you can't see session output in case of unhandled exception.
+    vim.keymap.set('n', '<F7>', dapui.toggle, { desc = 'Debug: See last session result.' })
+end
+
+local function setup_debugger()
+    return {
+        'mfussenegger/nvim-dap',
+        dependencies = {
+            { 'rcarriga/nvim-dap-ui', dependencies = { 'nvim-neotest/nvim-nio' } },
+            'williamboman/mason.nvim',
+            'jay-babu/mason-nvim-dap.nvim',
+        },
+        config = function()
+            local dap = require 'dap'
+            local dapui = require 'dapui'
+            require('mason-nvim-dap').setup {
+                automatic_setup = true,
+                handlers = {},
+                ensure_installed = { 'codelldb' }
+            }
+            dapui.setup {
+                icons = { expanded = '▾', collapsed = '▸', current_frame = '*' },
+                controls = {
+                    icons = {
+                        pause = '⏸',
+                        play = '▶',
+                        step_into = '⏎',
+                        step_over = '⏭',
+                        step_out = '⏮',
+                        step_back = 'b',
+                        run_last = '▶▶',
+                        terminate = '⏹',
+                        disconnect = '⏏',
+                    },
+                },
+            }
+
+            setup_debugging_keymaps()
+
+            dap.listeners.after.event_initialized['dapui_config'] = dapui.open
+            dap.listeners.before.event_terminated['dapui_config'] = dapui.close
+            dap.listeners.before.event_exited['dapui_config'] = dapui.close
+            dap.adapters.codelldb = {
+                type = 'server',
+                port = '${port}',
+                executable = {
+                    command = vim.fn.stdpath('data') .. '/mason/bin/codelldb',
+                    args = { '--port', '${port}' }
+                }
+            }
+            local actions = require('telescope.actions')
+            local state = require('telescope.actions.state')
+            local cfg = require('telescope.config')
+
+            local debug_info = {}
+            vim.keymap.set('n', '<F5>', function()
+                -- this will force telescope to only show executables (files without extensions)
+                -- this will need to be fixed for .exe's on windows
+                cfg.set_defaults({ file_ignore_patterns = { '%w%.%w' } })
+
+                -- this will reset the ignore list when the dialog closes
+                local close_and_reset = function(bufno)
+                    actions.close(bufno)
+                    cfg.set_defaults({ file_ignore_patterns = {} })
+                end
+
+                -- this gets the executable path from telescope and launches a debug session
+                local debug_executable = function(bufno)
+                    local entry = state.get_selected_entry()
+                    debug_info.executable = entry[1]
+                    close_and_reset(bufno)
+                    dap.continue()
+                end
+
+                -- this initializes the executable-search dialog
+                require('telescope.builtin').find_files({
+                    previewer = false,
+                    prompt_title = 'Find Executable',
+                    attach_mappings = function (_, map)
+                        actions.select_default:replace(debug_executable)
+                        map('i', '<C-c>', close_and_reset)
+                        map('n', '<ESC>', close_and_reset)
+                        return true
+                    end
+                })
+            end, { desc = 'Debug: Start/Continue' })
+
+            local basic_llvm_cfg = function(info)
+                return {
+                    name = 'Launch',
+                    type = 'codelldb',
+                    request = 'launch',
+                    program = function()
+                        print('getting executable ' .. info.executable)
+                        return info.executable
+                    end,
+                    cwd = '${workspaceFolder}',
+                    stopOnEntry = false,
+                    args = {},
+                }
+            end
+            dap.configurations.c = { basic_llvm_cfg(debug_info) }
+            dap.configurations.cpp = { basic_llvm_cfg(debug_info) }
+            local basic_rust_cfg = basic_llvm_cfg(debug_info);
+            basic_rust_cfg.initCommands = function()
+                -- Find out where to look for the pretty printer Python module
+                local rustc_sysroot = vim.fn.trim(vim.fn.system('rustc --print sysroot'))
+                local script_import = 'command script import "' .. rustc_sysroot .. '/lib/rustlib/etc/lldb_lookup.py"'
+                local commands_file = rustc_sysroot .. '/lib/rustlib/etc/lldb_commands'
+                local commands = {}
+                local file = io.open(commands_file, 'r')
+                if file then
+                    for line in file:lines() do
+                        table.insert(commands, line)
+                    end
+                    file:close()
+                end
+                table.insert(commands, 1, script_import)
+                return commands
+            end
+            dap.configurations.rust = { basic_rust_cfg };
+        end
+    }
+end
+
+---------------------------------------------- [ Install Plugins ] -----------------------------------------------
  
 require('lazy').setup({
     { 'xiyaowong/transparent.nvim' }, -- transparency
@@ -132,7 +273,7 @@ require('lazy').setup({
 -- Enable telescope fzf native, if installed
 pcall(require('telescope').load_extension, 'fzf')
 
- ---------------------------------------------- [ All Keymaps ] -----------------------------------------------
+---------------------------------------------- [ All Keymaps ] -----------------------------------------------
 
 local setup_basic_keymaps = function()
     local telescope = require('telescope.builtin')
@@ -209,151 +350,12 @@ local setup_lsp_keymaps = function(bufnr)
     end, '[W]orkspace [L]ist Folders')
 end
 
-local setup_deubgging_keymaps = function()
-    local dap = require 'dap'
-    local dapui = require 'dapui'
-
-    -- vim.keymap.set('n', '<F5>', dap.continue, { desc = 'Debug: Start/Continue' })
-
-    vim.keymap.set('n', '<F1>', dap.step_into, { desc = 'Debug: Step Into' })
-    vim.keymap.set('n', '<F2>', dap.step_over, { desc = 'Debug: Step Over' })
-    vim.keymap.set('n', '<F3>', dap.step_out, { desc = 'Debug: Step Out' })
-    vim.keymap.set('n', '<leader>b', dap.toggle_breakpoint, { desc = 'Debug: Toggle Breakpoint' })
-    vim.keymap.set('n', '<leader>B', function()
-    dap.set_breakpoint(vim.fn.input 'Breakpoint condition: ')
-    end, { desc = 'Debug: Set Breakpoint' })
-
-    -- Toggle to see last session result. Without this, you can't see session output in case of unhandled exception.
-    vim.keymap.set('n', '<F7>', dapui.toggle, { desc = 'Debug: See last session result.' })
-end
-
 setup_basic_keymaps()
 
- ---------------------------------------------- [ End of Keymaps ] -----------------------------------------------
+---------------------------------------------- [ End of Keymaps ] -----------------------------------------------
 
 -- order id X241125989635
 
- ------------------------------------------[ DEBUGGER ]------------------------------------------
-local function setup_debugger()
-    return {
-        'mfussenegger/nvim-dap',
-        dependencies = {
-            { 'rcarriga/nvim-dap-ui', dependencies = { 'nvim-neotest/nvim-nio' } },
-            'williamboman/mason.nvim',
-            'jay-babu/mason-nvim-dap.nvim',
-        },
-        config = function()
-            local dap = require 'dap'
-            local dapui = require 'dapui'
-            require('mason-nvim-dap').setup {
-                automatic_setup = true,
-                handlers = {},
-                ensure_installed = { 'codelldb' }
-            }
-            dapui.setup {
-                icons = { expanded = '▾', collapsed = '▸', current_frame = '*' },
-                controls = {
-                    icons = {
-                        pause = '⏸',
-                        play = '▶',
-                        step_into = '⏎',
-                        step_over = '⏭',
-                        step_out = '⏮',
-                        step_back = 'b',
-                        run_last = '▶▶',
-                        terminate = '⏹',
-                        disconnect = '⏏',
-                    },
-                },
-            }
-
-            setup_deubgging_keymaps()
-
-            dap.listeners.after.event_initialized['dapui_config'] = dapui.open
-            dap.listeners.before.event_terminated['dapui_config'] = dapui.close
-            dap.listeners.before.event_exited['dapui_config'] = dapui.close
-            dap.adapters.codelldb = {
-                type = 'server',
-                port = '${port}',
-                executable = {
-                    command = vim.fn.stdpath('data') .. '/mason/bin/codelldb',
-                    args = { '--port', '${port}' }
-                }
-            }
-            local actions = require('telescope.actions')
-            local state = require('telescope.actions.state')
-            local cfg = require('telescope.config')
-
-            local debug_info = {}
-            vim.keymap.set('n', '<F5>', function()
-                -- this will force telescope to only show executables (files without extensions)
-                -- this will need to be fixed for .exe's on windows
-                cfg.set_defaults({ file_ignore_patterns = { '%w%.%w' } })
-
-                -- this will reset the ignore list when the dialog closes
-                local close_and_reset = function(bufno)
-                    actions.close(bufno)
-                    cfg.set_defaults({ file_ignore_patterns = {} })
-                end
-
-                -- this gets the executable path from telescope and launches a debug session
-                local debug_executable = function(bufno)
-                    local entry = state.get_selected_entry()
-                    debug_info.executable = entry[1]
-                    close_and_reset(bufno)
-                    dap.continue()
-                end
-
-                -- this initializes the executable-search dialog
-                require('telescope.builtin').find_files({
-                    previewer = false,
-                    prompt_title = 'Find Executable',
-                    attach_mappings = function (_, map)
-                        actions.select_default:replace(debug_executable)
-                        map('i', '<C-c>', close_and_reset)
-                        map('n', '<ESC>', close_and_reset)
-                        return true
-                    end
-                })
-            end, { desc = 'Debug: Start/Continue' })
-
-            local basic_llvm_cfg = function(info)
-                return {
-                    name = 'Launch',
-                    type = 'codelldb',
-                    request = 'launch',
-                    program = function()
-                        print('getting executable ' .. info.executable)
-                        return info.executable
-                    end,
-                    cwd = '${workspaceFolder}',
-                    stopOnEntry = false,
-                    args = {},
-                }
-            end
-            dap.configurations.c = { basic_llvm_cfg(debug_info) }
-            dap.configurations.cpp = { basic_llvm_cfg(debug_info) }
-            local basic_rust_cfg = basic_llvm_cfg(debug_info);
-            basic_rust_cfg.initCommands = function()
-                -- Find out where to look for the pretty printer Python module
-                local rustc_sysroot = vim.fn.trim(vim.fn.system('rustc --print sysroot'))
-                local script_import = 'command script import "' .. rustc_sysroot .. '/lib/rustlib/etc/lldb_lookup.py"'
-                local commands_file = rustc_sysroot .. '/lib/rustlib/etc/lldb_commands'
-                local commands = {}
-                local file = io.open(commands_file, 'r')
-                if file then
-                    for line in file:lines() do
-                        table.insert(commands, line)
-                    end
-                    file:close()
-                end
-                table.insert(commands, 1, script_import)
-                return commands
-            end
-            dap.configurations.rust = { basic_rust_cfg };
-        end
-    }
-end
 
 -- local empty = require('lualine.component'):extend()
 
