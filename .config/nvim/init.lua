@@ -17,6 +17,11 @@ if not vim.loop.fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
+local is_windows = false
+if vim.fn.has('macunix') == 0 then
+    is_windows = true
+end
+
 ------------------------------------------[ DEBUGGER ]------------------------------------------
 
 local setup_debugging_keymaps = function()
@@ -79,7 +84,7 @@ local function setup_debugger()
                 type = 'server',
                 port = '${port}',
                 executable = {
-                    command = vim.fn.stdpath('data') .. '/mason/bin/codelldb',
+                    command = vim.fn.stdpath('data') .. (is_windows and '\\mason\\bin\\codelldb.cmd' or '/mason/bin/codelldb'),
                     args = { '--port', '${port}' }
                 }
             }
@@ -89,9 +94,12 @@ local function setup_debugger()
 
             local debug_info = {}
             vim.keymap.set('n', '<F5>', function()
-                -- this will force telescope to only show executables (files without extensions)
-                -- this will need to be fixed for .exe's on windows
-                cfg.set_defaults({ file_ignore_patterns = { '%w%.%w' } })
+                -- this will force telescope to only show executables
+                -- on mac/unix that's just a file with no extension
+                -- the windows 'pattern' to match is really annoying. We need to match files that don't end in .exe
+                -- To do that, we ignore the files that don't end with (* is wildcard) '.e', '.*x', '.**e'
+                -- This still leaves in files like '.e', '.ex', '.exebutcool', etc. so we need 3 more patterns to ignore files with 1/2/4+ characters in their extention
+                cfg.set_defaults({ file_ignore_patterns = (is_windows and { '%.[^e]%w*$', '%.%w[^x]%w*$', '%.%w%w[^e]$', '%.%w$', '%.%w%w$', '%.%w%w%w%w+$' } or { '%.%w+$' }) })
 
                 -- this will reset the ignore list when the dialog closes
                 local close_and_reset = function(bufno)
