@@ -1,16 +1,15 @@
 echo \" <<'POWERSHELL_SCRIPT' >/dev/null # " | Out-Null
 # ===== PowerShell Script Begin =====
-if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))  {
-	Start-Process powershell -Verb RunAs "Invoke-RestMethod -Uri https://raw.githubusercontent.com/CodedAbyss/dotfiles/refs/heads/main/install.sh | Invoke-Expression"
-	exit
-}
-
 function Link($path, $source) {
 	if(!(Test-Path -Path $path)) {
-		echo "Symlinking $path"
-		New-Item -Path $path -ItemType SymbolicLink -Value $source
+		echo "Hard linking path. ($path)"
+		$dir = Split-Path -Path $path -Parent
+		if(!(Test-Path -Path $dir)) {
+			New-Item -ItemType Directory -Path $dir | Out-Null
+		}
+		New-Item -ItemType HardLink -Path $dir -Name (Split-Path -Path $path -Leaf) -Value $source | Out-Null
 	} else {
-		echo "$path already exists."
+		echo "Link already exists. ($path)"
 	}
 }
 
@@ -43,10 +42,9 @@ if(!(Test-Path -Path "$HOME\dotfiles")) {
 	git clone https://github.com/CodedAbyss/dotfiles.git
 }
 
-Link "$env:LOCALAPPDATA\nvim" "$HOME\dotfiles\.config\nvim"
-Link "$HOME\.config\wezterm" "$HOME\dotfiles\.config\nvim"
-Link "$env:LOCALAPPDATA\clangd" "$HOME\dotfiles\.config\clangd"
-Link "$HOME\dotfiles\.config\clangd\config.yaml" "$HOME\dotfiles\.config\clangd\config-windows.yaml"
+Link "$env:LOCALAPPDATA\nvim\init.lua" "$HOME\dotfiles\.config\nvim\init.lua"
+Link "$HOME\.config\wezterm\wezterm.lua" "$HOME\dotfiles\.config\wezterm\wezterm.lua"
+Link "$env:LOCALAPPDATA\clangd\config.yaml" "$HOME\dotfiles\.config\clangd\config-windows.yaml"
 pause
 exit
 <#

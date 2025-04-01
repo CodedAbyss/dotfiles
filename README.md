@@ -2,8 +2,6 @@
 My Cross Platform setup for new MacOS/Windows Machines
 
 ## Windows Installation
-*(requires administrator to create symlinks)*
-
 In powershell run:
 ```
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
