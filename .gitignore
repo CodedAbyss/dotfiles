@@ -1,0 +1,2 @@
+# ignore the symlinked clangd/config.yaml
+.config/clangd/config.yaml
