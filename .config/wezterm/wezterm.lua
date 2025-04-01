@@ -34,6 +34,7 @@ config.keys = {
 	
 	{ key = 'm', mods = CMD, action = act.DisableDefaultAssignment },
 	{ key = 'm', mods = CMD, action = act.ToggleFullScreen },
+	{ key = 'l', mods = SHIFT_CMD, action = act.ShowDebugOverlay }
 }
 
 return config

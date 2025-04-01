@@ -1,5 +1,6 @@
 vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
+vim.g.c_syntax_for_h = 1
 
 -- Install package manager
 --    https://github.com/folke/lazy.nvim
@@ -17,12 +18,18 @@ if not vim.loop.fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
+local is_windows = false
+if vim.fn.has('macunix') == 0 then
+    is_windows = true
+end
+
+vim.g.loaded_netrwPlugin = 1
+vim.g.loaded_netrw = 1
+
 ------------------------------------------[ DEBUGGER ]------------------------------------------
 
 local setup_debugging_keymaps = function()
     local dap = require 'dap'
-    local dapui = require 'dapui'
-
     -- vim.keymap.set('n', '<F5>', dap.continue, { desc = 'Debug: Start/Continue' })
 
     vim.keymap.set('n', '<F1>', dap.step_into, { desc = 'Debug: Step Into' })
@@ -34,52 +41,32 @@ local setup_debugging_keymaps = function()
     end, { desc = 'Debug: Set Breakpoint' })
 
     -- Toggle to see last session result. Without this, you can't see session output in case of unhandled exception.
-    vim.keymap.set('n', '<F7>', dapui.toggle, { desc = 'Debug: See last session result.' })
 end
 
 local function setup_debugger()
     return {
         'mfussenegger/nvim-dap',
         dependencies = {
-            { 'rcarriga/nvim-dap-ui', dependencies = { 'nvim-neotest/nvim-nio' } },
             'williamboman/mason.nvim',
             'jay-babu/mason-nvim-dap.nvim',
         },
         config = function()
             local dap = require 'dap'
-            local dapui = require 'dapui'
             require('mason-nvim-dap').setup {
                 automatic_setup = true,
                 handlers = {},
                 ensure_installed = { 'codelldb' }
             }
-            dapui.setup {
-                icons = { expanded = '▾', collapsed = '▸', current_frame = '*' },
-                controls = {
-                    icons = {
-                        pause = '⏸',
-                        play = '▶',
-                        step_into = '⏎',
-                        step_over = '⏭',
-                        step_out = '⏮',
-                        step_back = 'b',
-                        run_last = '▶▶',
-                        terminate = '⏹',
-                        disconnect = '⏏',
-                    },
-                },
-            }
-
             setup_debugging_keymaps()
 
-            dap.listeners.after.event_initialized['dapui_config'] = dapui.open
-            dap.listeners.before.event_terminated['dapui_config'] = dapui.close
-            dap.listeners.before.event_exited['dapui_config'] = dapui.close
+            -- dap.listeners.after.event_initialized['dapui_config'] = dapui.open
+            -- dap.listeners.before.event_terminated['dapui_config'] = dapui.close
+            -- dap.listeners.before.event_exited['dapui_config'] = dapui.close
             dap.adapters.codelldb = {
                 type = 'server',
                 port = '${port}',
                 executable = {
-                    command = vim.fn.stdpath('data') .. '/mason/bin/codelldb',
+                    command = vim.fn.stdpath('data') .. (is_windows and '\\mason\\bin\\codelldb.cmd' or '/mason/bin/codelldb'),
                     args = { '--port', '${port}' }
                 }
             }
@@ -89,9 +76,12 @@ local function setup_debugger()
 
             local debug_info = {}
             vim.keymap.set('n', '<F5>', function()
-                -- this will force telescope to only show executables (files without extensions)
-                -- this will need to be fixed for .exe's on windows
-                cfg.set_defaults({ file_ignore_patterns = { '%w%.%w' } })
+                -- this will force telescope to only show executables
+                -- on mac/unix that's just a file with no extension
+                -- the windows 'pattern' to match is really annoying. We need to match files that don't end in .exe
+                -- To do that, we ignore the files that don't end with (* is wildcard) '.e', '.*x', '.**e'
+                -- This still leaves in files like '.e', '.ex', '.exebutcool', etc. so we need 3 more patterns to ignore files with 1/2/4+ characters in their extention
+                cfg.set_defaults({ file_ignore_patterns = (is_windows and { '%.[^e]%w*$', '%.%w[^x]%w*$', '%.%w%w[^e]$', '%.%w$', '%.%w%w$', '%.%w%w%w%w+$' } or { '%.%w+$' }) })
 
                 -- this will reset the ignore list when the dialog closes
                 local close_and_reset = function(bufno)
@@ -159,9 +149,18 @@ local function setup_debugger()
 end
 
 ---------------------------------------------- [ Install Plugins ] -----------------------------------------------
- 
+
 require('lazy').setup({
     { 'xiyaowong/transparent.nvim' }, -- transparency
+    {
+        "nvim-tree/nvim-tree.lua",
+        version = "*",
+        lazy = false,
+        dependencies = { 'nvim-tree/nvim-web-devicons' },
+        config = function()
+            require('nvim-tree').setup {}
+        end
+    },
     { -- LSP Configuration & Plugins
         'neovim/nvim-lspconfig',
         dependencies = {
@@ -498,7 +497,10 @@ require('nvim-treesitter.configs').setup {
 --  If you want to override the default filetypes that your language server will attach to you can
 --  define the property 'filetypes' to the map in question.
 local servers = {
-    clangd = {},
+    clangd = {
+        cmd = { "clangd" }
+        -- cmd = (is_windows and { "C:/Users/user/scoop/apps/zig/0.14.0/lib/libc/include/any-windows-any", "clang" }) or { "clangd" }
+    },
     rust_analyzer = {},
     typst_lsp = {
         exportPdf = "onType",
@@ -548,6 +550,7 @@ mason_lspconfig.setup_handlers {
             capabilities = capabilities,
             on_attach = on_lsp_attach,
             settings = servers[server_name],
+            cmd = (servers[server_name] or {}).cmd,
             filetypes = (servers[server_name] or {}).filetypes,
         }
     end

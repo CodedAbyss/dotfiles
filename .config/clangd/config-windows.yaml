@@ -1,0 +1,8 @@
+CompileFlags:
+  Add:
+    - "-I../../../../scoop/apps/zig/0.14.0/lib/libc/include/any-windows-any"
+    - "-I../../../../scoop/apps/zig/0.14.0/lib/include"
+    - "-xc-header"
+    # this for some reason gets rid of the "expected ';' at top declarator"
+    # I assume clangd simply cannot handle __declspec correctly. Which is weird
+    - "-D__declspec(...)=__attribute__(__VA_ARGS__)"
