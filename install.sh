@@ -1,7 +1,7 @@
 echo \" <<'POWERSHELL_SCRIPT' >/dev/null # " | Out-Null
 # ===== PowerShell Script Begin =====
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))  {
-	Start-Process powershell "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+	Start-Process powershell -Verb RunAs "Invoke-RestMethod -Uri https://raw.githubusercontent.com/CodedAbyss/dotfiles/refs/heads/main/install.sh | Invoke-Expression"
 	exit
 }
 
